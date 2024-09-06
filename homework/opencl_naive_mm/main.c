@@ -19,50 +19,74 @@ void OpenCLMatrixMultiply(Matrix *input0, Matrix *input1, Matrix *result)
     // Load external OpenCL kernel code
     char *kernel_source = OclLoadKernel(KERNEL_PATH); // Load kernel source
 
-    // Device input and output buffers
-    cl_mem device_a, device_b, device_c;
 
+
+    // Error Checking Variable
     cl_int err;
 
-    cl_device_id device_id;    // device ID
-    cl_context context;        // context
-    cl_command_queue queue;    // command queue
-    cl_program program;        // program
-    cl_kernel kernel;          // kernel
 
+
+    cl_device_id device_id;    // device ID
     // Find platforms and devices
     OclPlatformProp *platforms = NULL;
     cl_uint num_platforms;
-
     err = OclFindPlatforms((const OclPlatformProp **)&platforms, &num_platforms);
     CHECK_ERR(err, "OclFindPlatforms");
-
     // Get ID for first device on first platform
     device_id = platforms[0].devices[0].device_id;
 
+
+
+    cl_context context;        // context
     // Create a context
     context = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
     CHECK_ERR(err, "clCreateContext");
 
+
+
+    cl_command_queue queue;    // command queue
     // Create a command queue
     queue = clCreateCommandQueueWithProperties(context, device_id, 0, &err);
     CHECK_ERR(err, "clCreateCommandQueueWithProperties");
 
+
+
+    cl_program program;        // program
     // Create the program from the source buffer
     program = clCreateProgramWithSource(context, 1, (const char **)&kernel_source, NULL, &err);
     CHECK_ERR(err, "clCreateProgramWithSource");
-
     // Build the program executable
     err = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
     CHECK_ERR(err, "clBuildProgram");
 
+
+
+    cl_kernel kernel;          // kernel
     // Create the compute kernel in the program we wish to run
     kernel = clCreateKernel(program, "matrixMultiply", &err);
     CHECK_ERR(err, "clCreateKernel");
 
+
+
+    // Device input and output buffers
+    cl_mem device_a, device_b, device_c;
     //@@ Allocate GPU memory here
+    device_a = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * input0->shape[0] * input0->shape[1],NULL, &err);
+    CHECK_ERR(err, "clCreateBuffer");
+    device_b = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * input1->shape[0] * input1->shape[1],NULL, &err);
+    CHECK_ERR(err, "clCreateBuffer");
+    device_c = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * result->shape[0] * result->shape[1],NULL, &err);
+    CHECK_ERR(err, "clCreateBuffer");
+
+
 
     //@@ Copy memory to the GPU here
+    err = clEnqueueWriteBuffer(queue, device_a, CL_TRUE, 0, sizeof(float) * input0->shape[0] * input0->shape[1], input0->data,0,NULL,NULL);
+    CHECK_ERR(err,"clEnqueueWriteBuffer");
+    err = clEnqueueWriteBuffer(queue, device_b, CL_TRUE, 0, sizeof(float) * input1->shape[0] * input1->shape[1], input1->data,0,NULL,NULL);
+    CHECK_ERR(err,"clEnqueueWriteBuffer");
+
+
 
     // Set the arguments to our compute kernel
     // __global const float *A, __global const float *B, __global float *C,
@@ -88,13 +112,35 @@ void OpenCLMatrixMultiply(Matrix *input0, Matrix *input1, Matrix *result)
     err |= clSetKernelArg(kernel, 8, sizeof(unsigned int), &result->shape[1]);
     CHECK_ERR(err, "clSetKernelArg 8");
 
+
+
     // @@ define local and global work sizes
+    // Global Overall Operations size is size of Matrix C [numArows, numBColumns]
+    size_t global_item_size[2] = {input0->shape[0], input1->shape[1]};
+    // Local size is one operation at a time
+    size_t local_item_size[2] = {1,1};
+
+
 
     //@@ Launch the GPU Kernel here
+    err = clEnqueueNDRangeKernel(queue, kernel, 2, NULL, global_item_size, local_item_size, 0, NULL, NULL);
+    CHECK_ERR(err, "clEnqueueNDRangeKernel");
+
+
 
     //@@ Copy the GPU memory back to the CPU here
+    clEnqueueReadBuffer(queue, device_c, CL_TRUE, 0, sizeof(float) * result->shape[0] * result->shape[1], result->data, 0, NULL, NULL);
+
+
 
     //@@ Free the GPU memory here
+    clReleaseMemObject(device_a);
+    clReleaseMemObject(device_b);
+    clReleaseMemObject(device_c);
+    clReleaseProgram(program);
+    clReleaseKernel(kernel);
+    clReleaseCommandQueue(queue);
+    clReleaseContext(context);
 }
 
 int main(int argc, char *argv[])
@@ -127,6 +173,8 @@ int main(int argc, char *argv[])
     int rows, cols;
     //@@ Update these values for the output rows and cols of the output
     //@@ Do not use the results from the answer matrix
+    rows = host_a.shape[0];
+    cols = host_b.shape[1];
 
     // Allocate the memory for the target.
     host_c.shape[0] = rows;

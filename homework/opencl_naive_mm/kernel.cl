@@ -8,7 +8,7 @@ __kernel void matrixMultiply(
   int C_row = get_global_id(0); // Row ID of C (0..M)
   int C_col = get_global_id(1); // Col ID of C (0..N)
   float acc = 0.0f;
-
+  printf("Global ID: (%d, %d)\n",get_global_id(0), get_global_id(1));
   // Matrix A MxK 2x5:
   //    0 1 2 3 4
   // 0 [0 1 2 3 4]

@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#define TILE_SIZE 16
 #include "device.h"
 #include "kernel.h"
 #include "matrix.h"
@@ -18,6 +17,8 @@ void OpenCLMatrixMultiply(Matrix *input0, Matrix *input1, Matrix *result)
 {
     // Load external OpenCL kernel code
     char *kernel_source = OclLoadKernel(KERNEL_PATH); // Load kernel source
+
+
 
     // Device input and output buffers
     cl_mem device_a, device_b, device_c;
@@ -102,9 +103,35 @@ void OpenCLMatrixMultiply(Matrix *input0, Matrix *input1, Matrix *result)
 
     // @@ define local and global work sizes
     // Global Overall Operations size is size of Matrix C [numArows, numBColumns]
-    size_t global_item_size[2] = {((result->shape[1] + TILE_SIZE - 1) / TILE_SIZE) * TILE_SIZE, 
-                                ((result->shape[0] + TILE_SIZE - 1) / TILE_SIZE) * TILE_SIZE};
-    size_t local_item_size[2] = {TILE_SIZE, TILE_SIZE};
+
+    // Tile Size = 16
+    // C_rows = 64
+    // C_columns = 64
+    // local_item_size = 16x16
+    // global_item_size = 64x64
+    //printf("Set global item size: %d, %d\n", result->shape[0],result->shape[1]);
+    //printf("Set local item size: %d, %d\n", TILE_SIZE, TILE_SIZE);
+    int tile_size = 16;
+    size_t global_item_size[2] = {result->shape[0],result->shape[1]};
+    size_t local_item_size[2] = {tile_size, tile_size};
+
+    // Handle smaller than Tile Size
+    if(input0->shape[0] < tile_size){
+        local_item_size[0] = input0->shape[0];
+    }
+    if(input1->shape[1] < tile_size){
+        local_item_size[1] = input1->shape[1];
+    }
+
+    // Round up for global_x % local_x != 0
+    if(global_item_size[0] % local_item_size[0] != 0){
+        global_item_size[0] = (global_item_size[0] + local_item_size[0] - 1) / local_item_size[0]*local_item_size[0];
+    }
+    if(global_item_size[1] % local_item_size[1] != 0){
+        global_item_size[1] = (global_item_size[1] + local_item_size[1] - 1) / local_item_size[0] * local_item_size[0];
+    }
+    
+    
 
     //@@ Launch the GPU Kernel here
     err = clEnqueueNDRangeKernel(queue, kernel, 2, NULL, global_item_size, local_item_size, 0, NULL, NULL);

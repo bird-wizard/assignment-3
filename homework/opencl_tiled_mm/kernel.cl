@@ -7,79 +7,63 @@ __kernel void matrixMultiply(
     const unsigned int numCRows, const unsigned int numCColumns) {
 
   // We will iterate over TILE_SIZE amount of work per index
-  // We will have Global Work Size / TILE_SIZE amount of indices
   // Local memory for storing sub-matrices of A and B
   __local float localA[TILE_SIZE][TILE_SIZE];
   __local float localB[TILE_SIZE][TILE_SIZE];
   
   //@@ Insert code to implement matrix multiplication here
-  int row = get_global_id(0); // Row ID of C (0..M)
-  int col = get_global_id(1); // Col ID of C (0..N)
-  float acc = 0.0f;
 
-  // Matrix A MxK 4x4:
-  //     0  1  2  3
-  // 0 [ 0  1  2  3]
-  // 1 [ 4  5  6  7]
-  // 2 [ 8  9 10 11]
-  // 3 [12 13 14 15]
+  // Get the work-item indices
+  int global_row = get_global_id(0);
+  int global_col = get_global_id(1); 
+  //int global_row = TILE_SIZE*get_group_id(0) + get_local_id(0);
+  //int global_col = TILE_SIZE*get_group_id(1) + get_local_id(1);
 
-  // Matrix B KxN 4x4:
-  //     0  1  2  3
-  // 0 [ 0  1  2  3]
-  // 1 [ 4  5  6  7]
-  // 2 [ 8  9 10 11]
-  // 3 [12 13 14 15]
+  // Same with Local ID
+  int local_row = get_local_id(0);
+  int local_col = get_local_id(1);
 
-  // Matrix C MxN 2x2:
-  //     0  1
-  // 0 [ 0  1]
-  // 1 [ 2  3]
+  // Allocate shared memory (local memory in OpenCL) for the tile of A and B
+  __local float local_A[TILE_SIZE][TILE_SIZE];
+  __local float local_B[TILE_SIZE][TILE_SIZE];
+
+  // Accumulate the result of matrix multiplication in a register
+  float sum = 0.0f;
+  int num_tiles = (numAColumns + TILE_SIZE - 1) / TILE_SIZE;
   
-  // Matrix C Actual 4x4, TILE_SIZE = 2:
-  //     0  1  2  3
-  // 0 [ 0  1  2  3]
-  // 1 [ 4  5  6  7]
-  // 2 [ 8  9 10 11]
-  // 3 [12 13 14 15]
+  // Loop over tiles (or "Group ID")
+  for (int t = 0; t < num_tiles; t++) {
+    // Load tile elements of A and B into local memory
+    // Get global index for A with respect to tile index (Iterate across the row)
+    int tiled_row = TILE_SIZE*t + local_row;
+    int tiled_col = TILE_SIZE*t + local_col;
 
-  // C[i,j] = SUM(A[i,k]*B[k,j])
-  // Iterate over columns of A up to TILE_SIZE
-  // numAColumns = 4
-  // TILE_SIZE = 2
-  // iterate 0 and 1
-  // 4 + 2 - 1 / 2 
-  // iterate over tiles required to compute the current 2x2 block of C
-  for (int t = 0; t < (numAColumns + TILE_SIZE - 1) / TILE_SIZE; ++t) {
+    if(global_row < numARows && tiled_col < numAColumns){
+      local_A[local_row][local_col] = A[global_row*numAColumns + tiled_col];
+    }
+    else{
+      local_A[local_row][local_col] = 0.0f;
+    }
+    
+    if(global_col < numBColumns && tiled_row < numBRows){
+      local_B[local_row][local_col] = B[tiled_row*numBRows + global_col];
+    }
+    else{
+      local_B[local_row][local_col] = 0.0f;
+    }
+    
+    // Synchronize to ensure all work-items have loaded their elements
+    barrier(CLK_LOCAL_MEM_FENCE);
 
-      // Load the tile of A into local memory
-      if (row < numARows && t * TILE_SIZE + get_local_id(0) < numAColumns) {
-          localA[get_local_id(1)][get_local_id(0)] = A[row * numAColumns + t * TILE_SIZE + get_local_id(0)];
-      } else {
-          localA[get_local_id(1)][get_local_id(0)] = 0.0f;
-      }
+    // Multiply the two tiles
+    for (int i = 0; i < TILE_SIZE; i++) {
+        sum += local_A[local_row][i] * local_B[i][local_col];
+    }
 
-      // Load the tile of B into local memory
-      if (col < numBColumns && t * TILE_SIZE + get_local_id(1) < numBRows) {
-          localB[get_local_id(1)][get_local_id(0)] = B[(t * TILE_SIZE + get_local_id(1)) * numBColumns + col];
-      } else {
-          localB[get_local_id(1)][get_local_id(0)] = 0.0f;
-      }
-
-      // Synchronize to ensure all work-items have loaded their tile into local memory
-      barrier(CLK_LOCAL_MEM_FENCE);
-
-      // Perform the multiplication of the tiles
-      for (int k = 0; k < TILE_SIZE; ++k) {
-          acc += localA[get_local_id(1)][k] * localB[k][get_local_id(0)];
-      }
-
-      // Synchronize before loading the next tile
-      barrier(CLK_LOCAL_MEM_FENCE);
+    // Synchronize before loading the next tile
+    barrier(CLK_LOCAL_MEM_FENCE);
   }
 
-  // Store the result in C
-  if (row < numCRows && col < numCColumns) {
-      C[row * numCColumns + col] = acc;
-  }
+  // Write the final result to global memory
+  C[global_row * numBColumns + global_col] = sum;
 }

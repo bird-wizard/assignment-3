@@ -117,17 +117,21 @@ void OpenCLMatrixMultiply(Matrix *input0, Matrix *input1, Matrix *result)
 
     // Handle smaller than Tile Size
     if(input0->shape[0] < tile_size){
+        //printf("Handle Smaller Tile Size 0");
         local_item_size[0] = input0->shape[0];
     }
     if(input1->shape[1] < tile_size){
+        //printf("Handle Smaller Tile Size 1");
         local_item_size[1] = input1->shape[1];
     }
 
     // Round up for global_x % local_x != 0
     if(global_item_size[0] % local_item_size[0] != 0){
+        //printf("Round Up 0\n");
         global_item_size[0] = (global_item_size[0] + local_item_size[0] - 1) / local_item_size[0]*local_item_size[0];
     }
     if(global_item_size[1] % local_item_size[1] != 0){
+        //printf("Round Up 1\n");
         global_item_size[1] = (global_item_size[1] + local_item_size[1] - 1) / local_item_size[0] * local_item_size[0];
     }
     

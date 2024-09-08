@@ -7,10 +7,6 @@ __kernel void matrixMultiply(
     const unsigned int numCRows, const unsigned int numCColumns) {
 
   // We will iterate over TILE_SIZE amount of work per index
-  // Local memory for storing sub-matrices of A and B
-  __local float localA[TILE_SIZE][TILE_SIZE];
-  __local float localB[TILE_SIZE][TILE_SIZE];
-  
   //@@ Insert code to implement matrix multiplication here
 
   // Get the work-item indices
@@ -46,7 +42,7 @@ __kernel void matrixMultiply(
     }
     
     if(global_col < numBColumns && tiled_row < numBRows){
-      local_B[local_row][local_col] = B[tiled_row*numBRows + global_col];
+      local_B[local_row][local_col] = B[tiled_row*numBColumns + global_col];
     }
     else{
       local_B[local_row][local_col] = 0.0f;
@@ -65,5 +61,8 @@ __kernel void matrixMultiply(
   }
 
   // Write the final result to global memory
-  C[global_row * numBColumns + global_col] = sum;
+  if(global_row < numCRows && global_col < numCColumns){
+    C[global_row * numCColumns + global_col] = sum;
+  }
+  
 }
